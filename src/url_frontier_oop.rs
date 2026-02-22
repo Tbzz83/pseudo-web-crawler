@@ -1,6 +1,14 @@
+use std::fmt::Debug;
+
 #[derive(Debug)]
 pub struct UrlFrontier {
-    _urls_to_prioritize: Vec<Option<Box<Url>>>,
+    _urls_to_prioritize: Vec<Option<Box<dyn FunctionalUrl>>>,
+}
+
+trait FunctionalUrl 
+where Self: Debug {
+    fn sum_domain_rank(&mut self);
+    fn get_domain_rank(&self) -> u32;
 }
 
 #[derive(Debug)]
@@ -54,9 +62,21 @@ impl Url {
     }
 }
 
+impl FunctionalUrl for Url {
+    fn sum_domain_rank(&mut self) {
+        let mut sum: u64 = 0;
+        sum = sum.wrapping_add(self._domain_rank as u64);
+        self._domain_rank = sum as u32;
+    }
+
+    fn get_domain_rank(&self) -> u32 {
+        self._domain_rank
+    }
+}
+
 impl UrlFrontier {
     pub fn new() -> UrlFrontier {
-        let urls_to_prioritize: Vec<Option<Box<Url>>> = Vec::with_capacity(1000000);
+        let urls_to_prioritize: Vec<Option<Box<dyn FunctionalUrl>>> = Vec::with_capacity(1000000);
         UrlFrontier {
             _urls_to_prioritize: urls_to_prioritize,
         }
@@ -66,14 +86,14 @@ impl UrlFrontier {
         self._urls_to_prioritize.push(Some(Box::new(url)));
     }
 
-    pub fn prioritize_urls(&self) -> u64 {
-        let mut sum: u64 = 0;
-        for opt_url in &self._urls_to_prioritize {
+    pub fn prioritize_urls(&mut self) -> u64 {
+        for opt_url in &mut self._urls_to_prioritize {
             let Some(url) = opt_url else {
                 continue;
             };
-            sum = sum.wrapping_add(url._domain_rank as u64);
+            url.as_mut().sum_domain_rank();
+            return url.get_domain_rank() as u64
         }
-        sum
+        0
     }
 }

@@ -11,9 +11,9 @@ struct ComplexObj {
 }
 
 fn main() {
-    let mut frontier = UrlFrontierAos::new();
+    let mut frontier = UrlFrontierOop::new();
     for _ in 0..1000000 {
-        frontier.push_url(UrlAos::new("https://google.com"));
+        frontier.push_url(UrlOop::new("https://google.com"));
     }
     frontier.prioritize_urls();
 }

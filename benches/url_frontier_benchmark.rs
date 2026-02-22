@@ -23,7 +23,7 @@ fn benchmark_oop_prioritize(c: &mut Criterion) {
 
     for size in [10000, 100000, 1000000, 5000000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let frontier = create_oop_frontier(size);
+            let mut frontier = create_oop_frontier(size);
             b.iter(|| black_box(frontier.prioritize_urls()));
         });
     }
@@ -49,7 +49,7 @@ fn benchmark_comparison(c: &mut Criterion) {
     let size = 2000000;
 
     group.bench_function("OOP", |b| {
-        let frontier = create_oop_frontier(size);
+        let mut frontier = create_oop_frontier(size);
         b.iter(|| black_box(frontier.prioritize_urls()));
     });
 
