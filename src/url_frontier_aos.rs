@@ -66,61 +66,14 @@ impl UrlFrontier {
         self._urls_to_prioritize.push(Some(url));
     }
 
-    pub fn prioritize_urls(&mut self) {
-        for opt_url in &mut self._urls_to_prioritize {
+    pub fn prioritize_urls(&self) -> u64 {
+        let mut sum: u64 = 0;
+        for opt_url in &self._urls_to_prioritize {
             let Some(url) = opt_url else {
                 continue;
             };
-
-            // Calculate priority score based on multiple fields
-            let depth_score = if url._depth > 0 {
-                100 / url._depth as u32
-            } else {
-                100
-            };
-            let domain_score = url._domain_rank / 1000;
-            let freshness_score = if url._last_crawled_timestamp > 0 {
-                1000000 / (url._last_crawled_timestamp + 1)
-            } else {
-                1000
-            };
-            let speed_score = if url._response_time_ms > 0 {
-                10000 / url._response_time_ms
-            } else {
-                100
-            };
-
-            // Combine scores with weights
-            let mut priority_score = depth_score
-                .wrapping_mul(2)
-                .wrapping_add(domain_score.wrapping_mul(3))
-                .wrapping_add(freshness_score as u32)
-                .wrapping_add(speed_score);
-
-            // Apply bonuses/penalties
-            if url._is_sitemap_url {
-                priority_score = priority_score.wrapping_mul(2);
-            }
-            if url._is_external {
-                priority_score = priority_score / 2;
-            }
-            if !url._is_robots_allowed {
-                priority_score = priority_score / 10;
-            }
-            if url._requires_javascript {
-                priority_score = priority_score.wrapping_sub(50);
-            }
-
-            // Update priority field
-            url._priority = (priority_score % 256) as u8;
-
-            // Simulate some additional work by updating checksum
-            url._checksum = url._checksum.wrapping_add(priority_score);
-
-            // Update retry count based on status code
-            if url._status_code >= 500 {
-                url._retry_count = url._retry_count.saturating_add(1);
-            }
+            sum = sum.wrapping_add(url._domain_rank as u64);
         }
+        sum
     }
 }

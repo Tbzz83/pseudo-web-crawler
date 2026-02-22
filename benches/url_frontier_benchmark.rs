@@ -21,12 +21,10 @@ fn create_aos_frontier(size: usize) -> UrlFrontierAos {
 fn benchmark_oop_prioritize(c: &mut Criterion) {
     let mut group = c.benchmark_group("OOP Layout");
 
-    for size in [1000, 10000, 100000].iter() {
+    for size in [10000, 100000, 1000000, 5000000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let mut frontier = create_oop_frontier(size);
-            b.iter(|| {
-                frontier.prioritize_urls();
-            });
+            let frontier = create_oop_frontier(size);
+            b.iter(|| black_box(frontier.prioritize_urls()));
         });
     }
 
@@ -36,12 +34,10 @@ fn benchmark_oop_prioritize(c: &mut Criterion) {
 fn benchmark_aos_prioritize(c: &mut Criterion) {
     let mut group = c.benchmark_group("AOS Layout");
 
-    for size in [1000, 10000, 100000].iter() {
+    for size in [10000, 100000, 1000000, 5000000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let mut frontier = create_aos_frontier(size);
-            b.iter(|| {
-                frontier.prioritize_urls();
-            });
+            let frontier = create_aos_frontier(size);
+            b.iter(|| black_box(frontier.prioritize_urls()));
         });
     }
 
@@ -50,20 +46,16 @@ fn benchmark_aos_prioritize(c: &mut Criterion) {
 
 fn benchmark_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("OOP vs AOS Comparison");
-    let size = 50000;
+    let size = 2000000;
 
     group.bench_function("OOP", |b| {
-        let mut frontier = create_oop_frontier(size);
-        b.iter(|| {
-            frontier.prioritize_urls();
-        });
+        let frontier = create_oop_frontier(size);
+        b.iter(|| black_box(frontier.prioritize_urls()));
     });
 
     group.bench_function("AOS", |b| {
-        let mut frontier = create_aos_frontier(size);
-        b.iter(|| {
-            frontier.prioritize_urls();
-        });
+        let frontier = create_aos_frontier(size);
+        b.iter(|| black_box(frontier.prioritize_urls()));
     });
 
     group.finish();
