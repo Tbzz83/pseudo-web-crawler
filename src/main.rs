@@ -1,14 +1,7 @@
 use crate::url_frontier_oop::{Url as UrlOop, UrlFrontier as UrlFrontierOop};
-use crate::url_frontier_aos::{Url as UrlAos, UrlFrontier as UrlFrontierAos};
-pub mod url_frontier_oop;
 pub mod url_frontier_aos;
-
-struct ComplexObj {
-    name: String,
-    color: String,
-    position_x: i32,
-    position_y: i32,
-}
+pub mod url_frontier_oop;
+pub mod url_frontier_soa; // SOA is not yet implemented
 
 fn main() {
     let mut frontier = UrlFrontierOop::new();
