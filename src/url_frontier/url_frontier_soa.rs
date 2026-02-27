@@ -1,0 +1,142 @@
+const DEFAULT_CAPACITY: usize = 100000;
+
+#[derive(Debug)]
+pub struct UrlFrontier {
+    urls_to_prioritize: AllUrls,
+}
+
+#[derive(Debug)]
+pub struct Url {
+    host_name: String,
+    //    path: String,
+    //    query_params: String,
+    //    fragment: String,
+
+    // Metadata fields with varying sizes (creates padding opportunities)
+    //    priority: u8,
+    //    is_visited: bool,
+    //    depth: u16,
+    //    retry_count: u8,
+    //    is_external: bool,
+    //    status_code: u16,
+    //    content_length: u64,
+    //    last_crawled_timestamp: u64,
+    //    checksum: u32,
+    domain_rank: u32,
+    crawl_delay_ms: u16,
+    is_robots_allowed: bool,
+    requires_javascript: bool,
+    is_sitemap_url: bool,
+    response_time_ms: u32,
+}
+
+impl Url {
+    pub fn new(host_name: &str) -> Url {
+        Url {
+            host_name: host_name.to_string(),
+            domain_rank: 0,
+            crawl_delay_ms: 0,
+            is_robots_allowed: true,
+            requires_javascript: false,
+            is_sitemap_url: false,
+            response_time_ms: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct AllUrls {
+    size: usize,
+    host_name: Vec<String>,
+    //    path: Vec<String>,
+    //    query_params: Vec<String>,
+    //    fragment: Vec<String>,
+    //
+    //    // Metadata fields with varying sizes (creates padding opportunities)
+    //    priority: Vec<u8>,
+    //    is_visited: bool,
+    //    depth: u16,
+    //    retry_count: Vec<u8>,
+    //    is_external: bool,
+    //    status_code: u16,
+    //    content_length: u64,
+    //    last_crawled_timestamp: u64,
+    //    checksum: u32,
+    domain_rank: Vec<u32>,
+    crawl_delay_ms: Vec<u16>,
+    is_robots_allowed: Vec<bool>,
+    requires_javascript: Vec<bool>,
+    is_sitemap_url: Vec<bool>,
+    response_time_ms: Vec<u32>,
+}
+
+impl AllUrls {
+    pub fn new() -> AllUrls {
+        Self::with_capacity(DEFAULT_CAPACITY)
+    }
+
+    pub fn with_capacity(capacity: usize) -> AllUrls {
+        AllUrls {
+            size: 0,
+            host_name: Vec::with_capacity(capacity),
+            //            path: String::new(),
+            //            query_params: String::new(),
+            //            fragment: String::new(),
+            //            priority: 0,
+            //            is_visited: false,
+            //            depth: 0,
+            //            retry_count: 0,
+            //            is_external: false,
+            //            status_code: 0,
+            //            content_length: 0,
+            //            last_crawled_timestamp: 0,
+            //            checksum: 0,
+            domain_rank: Vec::with_capacity(capacity),
+            crawl_delay_ms: Vec::with_capacity(capacity),
+            is_robots_allowed: Vec::with_capacity(capacity),
+            requires_javascript: Vec::with_capacity(capacity),
+            is_sitemap_url: Vec::with_capacity(capacity),
+            response_time_ms: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn push(&mut self, url: Url) {
+        self.size += 1;
+        self.host_name.push(url.host_name);
+        self.domain_rank.push(url.domain_rank);
+        self.crawl_delay_ms.push(url.crawl_delay_ms);
+        self.is_robots_allowed.push(url.is_robots_allowed);
+        self.requires_javascript.push(url.requires_javascript);
+        self.is_sitemap_url.push(url.is_sitemap_url);
+        self.response_time_ms.push(url.response_time_ms);
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl UrlFrontier {
+    pub fn new() -> UrlFrontier {
+        Self::with_capacity(DEFAULT_CAPACITY)
+    }
+
+    pub fn with_capacity(capacity: usize) -> UrlFrontier {
+        let urls_to_prioritize: AllUrls = AllUrls::with_capacity(capacity);
+        UrlFrontier { urls_to_prioritize }
+    }
+
+    // Pushes a url onto the frontier, and returns its index in the frontier.
+    pub fn push_url(&mut self, url: Url) -> usize {
+        self.urls_to_prioritize.push(url);
+        self.urls_to_prioritize.size()
+    }
+
+    pub fn prioritize_urls(&self) -> u64 {
+        let mut sum: u64 = 0;
+        for dom_rank in &self.urls_to_prioritize.domain_rank {
+            sum = sum.wrapping_add(*dom_rank as u64);
+        }
+        sum
+    }
+}
