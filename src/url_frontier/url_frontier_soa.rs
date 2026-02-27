@@ -1,8 +1,22 @@
-const DEFAULT_CAPACITY: usize = 100000;
+use std::collections::VecDeque;
+
+/// Starting capacity of AllURls SoA object
+const ALLURLS_CAPACITY: usize = 100000;
+/// How many separate prioritization queues can exist
+const PRIO_QUEUE_INSTANCES: usize = 3;
+/// How many separate domain queues can exist
+//const DOMAIN_QUEUE_INSTANCES: usize = 3;
+/// Starting capacity of prioritization VecDeque objects
+const PRIO_QUEUE_CAPACITY: usize = 25000;
+/// Starting capacity of domain VecDeque objects
+const DOMAIN_QUEUE_CAPACITY: usize = 25000;
 
 #[derive(Debug)]
 pub struct UrlFrontier {
     urls_to_prioritize: AllUrls,
+    // Priority is in order from highest to lowest priority
+    prioritization_queues: [VecDeque<usize>; PRIO_QUEUE_INSTANCES],
+    domain_queues: Vec<VecDeque<usize>>
 }
 
 #[derive(Debug)]
@@ -47,6 +61,8 @@ impl Url {
 #[derive(Debug)]
 pub struct AllUrls {
     size: usize,
+    /// Vector indicating indexes that should be overwritten. ie. soft-deleted
+    free_slots: Vec<usize>,
     host_name: Vec<String>,
     //    path: Vec<String>,
     //    query_params: Vec<String>,
@@ -72,12 +88,13 @@ pub struct AllUrls {
 
 impl AllUrls {
     pub fn new() -> AllUrls {
-        Self::with_capacity(DEFAULT_CAPACITY)
+        Self::with_capacity(ALLURLS_CAPACITY)
     }
 
     pub fn with_capacity(capacity: usize) -> AllUrls {
         AllUrls {
             size: 0,
+            free_slots: vec![],
             host_name: Vec::with_capacity(capacity),
             //            path: String::new(),
             //            query_params: String::new(),
@@ -101,6 +118,17 @@ impl AllUrls {
     }
 
     pub fn push(&mut self, url: Url) {
+        if let Some(free_idx) = self.free_slots.pop() {
+            self.host_name[free_idx] = url.host_name;
+            self.domain_rank[free_idx] = url.domain_rank;
+            self.crawl_delay_ms[free_idx] = url.crawl_delay_ms;
+            self.is_robots_allowed[free_idx] = url.is_robots_allowed;
+            self.requires_javascript[free_idx] = url.requires_javascript;
+            self.is_sitemap_url[free_idx] = url.is_sitemap_url;
+            self.response_time_ms[free_idx] = url.response_time_ms;
+            return
+        }
+
         self.size += 1;
         self.host_name.push(url.host_name);
         self.domain_rank.push(url.domain_rank);
@@ -111,6 +139,12 @@ impl AllUrls {
         self.response_time_ms.push(url.response_time_ms);
     }
 
+    /// Soft-deletes a Url from the UrlFrontier. This function will
+    /// allow this idx to be used by a new Url when another is pushed
+    pub fn remove(&mut self, idx: usize) {
+        self.free_slots.push(idx);
+    }
+
     pub fn size(&self) -> usize {
         self.size
     }
@@ -118,12 +152,24 @@ impl AllUrls {
 
 impl UrlFrontier {
     pub fn new() -> UrlFrontier {
-        Self::with_capacity(DEFAULT_CAPACITY)
+        Self::with_capacity(ALLURLS_CAPACITY)
     }
 
     pub fn with_capacity(capacity: usize) -> UrlFrontier {
         let urls_to_prioritize: AllUrls = AllUrls::with_capacity(capacity);
-        UrlFrontier { urls_to_prioritize }
+        UrlFrontier { 
+            urls_to_prioritize: urls_to_prioritize,
+            prioritization_queues: [
+                VecDeque::with_capacity(PRIO_QUEUE_CAPACITY),
+                VecDeque::with_capacity(PRIO_QUEUE_CAPACITY),
+                VecDeque::with_capacity(PRIO_QUEUE_CAPACITY),
+            ],
+            domain_queues: vec![
+                VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
+                VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
+                VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
+            ]
+        }
     }
 
     // Pushes a url onto the frontier, and returns its index in the frontier.
