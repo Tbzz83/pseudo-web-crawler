@@ -117,26 +117,33 @@ impl AllUrls {
         }
     }
 
-    pub fn push(&mut self, url: Url) {
+
+    /// Adds a new url, either using a free slot or by pushing onto the end
+    /// of AllUrls
+    pub fn add(&mut self, url: &Url) -> usize {
+        let url_idx: usize;
         if let Some(free_idx) = self.free_slots.pop() {
-            self.host_name[free_idx] = url.host_name;
+            self.host_name[free_idx] = url.host_name.clone();
             self.domain_rank[free_idx] = url.domain_rank;
             self.crawl_delay_ms[free_idx] = url.crawl_delay_ms;
             self.is_robots_allowed[free_idx] = url.is_robots_allowed;
             self.requires_javascript[free_idx] = url.requires_javascript;
             self.is_sitemap_url[free_idx] = url.is_sitemap_url;
             self.response_time_ms[free_idx] = url.response_time_ms;
-            return
+            url_idx = free_idx;
+        } else {
+            self.size += 1;
+            self.host_name.push(url.host_name.clone());
+            self.domain_rank.push(url.domain_rank);
+            self.crawl_delay_ms.push(url.crawl_delay_ms);
+            self.is_robots_allowed.push(url.is_robots_allowed);
+            self.requires_javascript.push(url.requires_javascript);
+            self.is_sitemap_url.push(url.is_sitemap_url);
+            self.response_time_ms.push(url.response_time_ms);
+            url_idx = self.size
         }
 
-        self.size += 1;
-        self.host_name.push(url.host_name);
-        self.domain_rank.push(url.domain_rank);
-        self.crawl_delay_ms.push(url.crawl_delay_ms);
-        self.is_robots_allowed.push(url.is_robots_allowed);
-        self.requires_javascript.push(url.requires_javascript);
-        self.is_sitemap_url.push(url.is_sitemap_url);
-        self.response_time_ms.push(url.response_time_ms);
+        url_idx
     }
 
     /// Soft-deletes a Url from the UrlFrontier. This function will
@@ -173,10 +180,16 @@ impl UrlFrontier {
     }
 
     // Pushes a url onto the frontier, and returns its index in the frontier.
-    pub fn push_url(&mut self, url: Url) -> usize {
-        self.urls_to_prioritize.push(url);
-        self.urls_to_prioritize.size()
+    pub fn add_url(&mut self, url: Url) -> usize {
+        let url_idx = self.urls_to_prioritize.add(&url);
+        self.prioritize_url(&url);
+        url_idx
     }
+
+    fn prioritize_url(&self, url: &Url) {
+
+    }
+
 
     pub fn prioritize_urls(&self) -> u64 {
         let mut sum: u64 = 0;

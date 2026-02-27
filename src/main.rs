@@ -5,6 +5,6 @@ mod url_frontier;
 fn main() {
     let mut frontier = UrlFrontier::new();
     for _ in 0..1000000 {
-        frontier.push_url(Url::new("https://google.com"));
+        frontier.add_url(Url::new("https://google.com"));
     }
 }
