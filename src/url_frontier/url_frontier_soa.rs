@@ -3,7 +3,8 @@ use rand::{rng, RngExt};
 use crate::{
     constants::{
         ALLURLS_CAPACITY, DOMAIN_QUEUE_CAPACITY, HIGH_PRIORITY_DOMAINS, HIGH_PRIORITY_URL_WEIGHT,
-        LOW_PRIORITY_URL_WEIGHT, PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES,
+        LOW_PRIORITY_URL_WEIGHT, MID_PRIORITY_DOMAINS, MID_PRIORITY_URL_WEIGHT,
+        PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES,
     },
     url_frontier::priority_queue::PriorityQueue,
 };
@@ -76,12 +77,15 @@ impl Url {
 
         if HIGH_PRIORITY_DOMAINS.contains(&iter[0]) {
             // Place in high prio queue
-            println!("url '{}' will be sent to high priority queue...", full_url);
+            println!("url '{}' will be given high priority weight...", full_url);
             return HIGH_PRIORITY_URL_WEIGHT;
-        } else {
-            println!("url '{}' will be sent to low priority queue...", full_url);
-            return LOW_PRIORITY_URL_WEIGHT;
+        } else if MID_PRIORITY_DOMAINS.contains(&iter[0]) {
+            println!("url '{}' will be given mid priority weight...", full_url);
+            return MID_PRIORITY_URL_WEIGHT;
         }
+
+        println!("url '{}' will be given mid priority weight...", full_url);
+        return LOW_PRIORITY_URL_WEIGHT;
     }
 }
 
@@ -239,9 +243,7 @@ impl UrlFrontier {
     /// It does this by following calculating the new theoretical average weight and seeing if that
     /// is greater than the current average weight
     fn allocate_url_to_priority_queue(&mut self, url_idx: usize, priority_weight: f64) {
-        if self.priority_queues.len() == 0 {
-            panic!("Somehow we have no priority queues!");
-        }
+        assert!(self.priority_queues.len() > 0, "Somehow we have no priority queues!");
 
         let mut rng = rng();
 
@@ -273,6 +275,22 @@ impl UrlFrontier {
 
         println!("Allocating url with priority_weight '{priority_weight}' to priority_queue {lowest_prio_idx}");
         self.priority_queues[lowest_prio_idx].push_front(url_idx, priority_weight);
+    }
+
+    fn select_queue_idx(&mut self) -> usize {
+        assert!(self.priority_queues.len() > 0, "Somehow we have no priority queues!");
+
+        let mut queue_idx: usize = 0;
+        let mut highest_avg_priority: f64 = 0.0;
+
+        for (idx, priority_queue) in self.priority_queues.iter().enumerate() {
+            if priority_queue.avg_priority_weight > highest_avg_priority {
+                queue_idx = idx;
+                highest_avg_priority = priority_queue.avg_priority_weight;
+            }
+        }
+
+        queue_idx
     }
 }
 
