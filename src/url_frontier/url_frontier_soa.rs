@@ -190,6 +190,10 @@ impl AllUrls {
     /// Soft-deletes a Url from the UrlFrontier. This function will
     /// allow this idx to be used by a new Url when another is pushed
     pub fn remove(&mut self, idx: usize) {
+        if self.free_slots.contains(&idx) {
+            return
+        }
+
         self.free_slots.push(idx);
     }
 
