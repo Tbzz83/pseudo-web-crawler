@@ -117,6 +117,21 @@ impl AllUrls {
         Self::with_capacity(ALLURLS_CAPACITY)
     }
 
+    /// Composes a Url struct based on the url index if it hasn't been soft-deleted
+    pub fn compose_url_from_idx(&self, url_idx: usize) -> Option<Url> {
+        if self.free_slots.contains(&url_idx) { return None };
+        Some(Url { 
+            priority_weight: self.priority_weight[url_idx], 
+            full_url: self.full_url[url_idx].clone(), 
+            domain_rank: self.domain_rank[url_idx], 
+            crawl_delay_ms: self.crawl_delay_ms[url_idx], 
+            is_robots_allowed: self.is_robots_allowed[url_idx], 
+            requires_javascript: self.requires_javascript[url_idx], 
+            is_sitemap_url: self.is_sitemap_url[url_idx], 
+            response_time_ms: self.response_time_ms[url_idx]
+        })
+    }
+
     pub fn with_capacity(capacity: usize) -> AllUrls {
         AllUrls {
             size: 0,
