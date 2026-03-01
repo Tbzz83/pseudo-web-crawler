@@ -1,17 +1,23 @@
+use crate::{
+    constants::{
+        ALLURLS_CAPACITY, DOMAIN_QUEUE_CAPACITY, HIGH_PRIORITY_DOMAINS, HIGH_PRIORITY_URL_WEIGHT,
+        LOW_PRIORITY_URL_WEIGHT, PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES,
+    },
+    url_frontier::priority_queue::PriorityQueue,
+};
 use std::collections::VecDeque;
-use crate::{constants::{ALLURLS_CAPACITY, DOMAIN_QUEUE_CAPACITY, HIGH_PRIORITY_DOMAINS, HIGH_PRIORITY_URL_WEIGHT, LOW_PRIORITY_URL_WEIGHT, PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES}, url_frontier::priority_queue::PriorityQueue};
 
 #[derive(Debug)]
 pub struct UrlFrontier {
     urls: AllUrls,
     // Priority is in order from highest to lowest priority
     priority_queues: [PriorityQueue; PRIO_QUEUE_INSTANCES],
-    domain_queues: Vec<VecDeque<usize>>
+    domain_queues: Vec<VecDeque<usize>>,
 }
 
 #[derive(Debug)]
 pub struct Url {
-    /// value between 0 - 1. The closer it is to 
+    /// value between 0 - 1. The closer it is to
     /// 1, the higher its priority
     priority_weight: f64,
 
@@ -51,7 +57,7 @@ impl Url {
             response_time_ms: 0,
         }
     }
-    /// Calculates a priority based on the url domain name 
+    /// Calculates a priority based on the url domain name
     fn prioritize_url(full_url: &str) -> f64 {
         let iter = full_url.split(".").collect::<Vec<&str>>();
 
@@ -59,21 +65,23 @@ impl Url {
         // so we call nth(0) again to actually get the string
         // at index 1
         if iter.len() == 1 {
-            println!("Url '{}' does not appear to be formatted correctly. Skipping priority...", full_url);
-            return 0.3
+            println!(
+                "Url '{}' does not appear to be formatted correctly. Skipping priority...",
+                full_url
+            );
+            return 0.3;
         }
 
         if HIGH_PRIORITY_DOMAINS.contains(&iter[0]) {
             // Place in high prio queue
             println!("url '{}' will be sent to high priority queue...", full_url);
-            return HIGH_PRIORITY_URL_WEIGHT 
+            return HIGH_PRIORITY_URL_WEIGHT;
         } else {
             println!("url '{}' will be sent to low priority queue...", full_url);
-            return LOW_PRIORITY_URL_WEIGHT
+            return LOW_PRIORITY_URL_WEIGHT;
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct AllUrls {
@@ -136,7 +144,6 @@ impl AllUrls {
         }
     }
 
-
     /// Adds a new url, either using a free slot or by pushing onto the end
     /// of AllUrls
     pub fn add(&mut self, url: &Url) -> usize {
@@ -183,7 +190,7 @@ impl UrlFrontier {
 
     pub fn with_capacity(capacity: usize) -> UrlFrontier {
         let urls: AllUrls = AllUrls::with_capacity(capacity);
-        UrlFrontier { 
+        UrlFrontier {
             urls: urls,
             priority_queues: [
                 PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY),
@@ -193,7 +200,7 @@ impl UrlFrontier {
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
-            ]
+            ],
         }
     }
 
@@ -204,39 +211,148 @@ impl UrlFrontier {
         url_idx
     }
 
-    /// The current allocation method loops through all our priority queues, and 
+    /// The current allocation method loops through all our priority queues, and
     /// tries to add the new url such that it increases the priority_queue.avg_prioritiy_weights.
-    /// It does this by following the formula `(new_priority_weight +
-    /// sum_priority_weights/(priority_queue.len() + 1) > avg_priority_weight`
-    /// => new_priority_weight > avg_priority_weight - (sum_priority_weights/priority_queue.len()) - 1
+    /// It does this by following calculating the new theoretical average weight and seeing if that
+    /// is greater than the current average weight
     fn allocate_url_to_priority_queue(&mut self, url_idx: usize, priority_weight: f64) {
         if self.priority_queues.len() == 0 {
             panic!("Somehow priority queues are empty!");
         }
 
-        for priority_queue in &mut self.priority_queues {
-            if priority_weight > priority_queue.avg_priority_weight - (priority_queue.sum_priority_weights/priority_queue.len() as f64) - 1.0 {
-                // Adding this priority_weight improves the avg so we will do it.
-                priority_queue.push_front(url_idx, priority_weight);
-                return
+        let lowest_prio_avg_weight: f64 = self.priority_queues[0].avg_priority_weight;
+        let new_avg_weight = (self.priority_queues[0].sum_priority_weights + priority_weight)
+            / (self.priority_queues[0].len() as f64 + 1.0);
+        let mut lowest_prio_idx: usize = 0;
+        let mut largest_gain: f64 = new_avg_weight - lowest_prio_avg_weight;
+
+        for (idx, priority_queue) in &mut self.priority_queues.iter_mut().enumerate() {
+            // If a queue is empty always add a url idx
+            if priority_queue.len() == 0 {
+                lowest_prio_idx = idx;
+                break;
+            }
+
+            let new_avg_weight = (priority_queue.sum_priority_weights + priority_weight)
+                / (priority_queue.len() as f64 + 1.0);
+            if new_avg_weight > priority_queue.avg_priority_weight
+                && (new_avg_weight - priority_queue.avg_priority_weight) > largest_gain
+            {
+                lowest_prio_idx = idx;
+                largest_gain = new_avg_weight - priority_queue.avg_priority_weight;
             }
         }
 
+        println!("Allocating url with priority_weight '{priority_weight}' to priority_queue {lowest_prio_idx}");
         // If the priority_weight doesn't improve any priority queues average_priority_weight, just
         // assign it to the first priority_queue. In future, randomize. TODO
-        self.priority_queues[0].push_front(url_idx, priority_weight);
+        self.priority_queues[lowest_prio_idx].push_front(url_idx, priority_weight);
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::{HIGH_PRIORITY_URL_WEIGHT, LOW_PRIORITY_URL_WEIGHT};
 
+    /// Helper: populate both queues with `n` URLs of the given weight directly,
+    /// bypassing allocate_url_to_priority_queue so we fully control initial state.
+    fn frontier_with_both_queues_populated(weight: f64, n: usize) -> UrlFrontier {
+        let mut frontier = UrlFrontier::new();
+        for i in 0..n {
+            frontier.priority_queues[0].push_front(i, weight);
+            frontier.priority_queues[1].push_front(i + n, weight);
+        }
+        frontier
+    }
 
+    /// When both queues are empty, queue[0] is the first empty queue encountered
+    /// so the URL should land there alone.
+    #[test]
+    fn test_empty_queue_gets_filled_first() {
+        let mut frontier = UrlFrontier::new();
+        frontier.allocate_url_to_priority_queue(0, HIGH_PRIORITY_URL_WEIGHT);
 
+        assert_eq!(frontier.priority_queues[0].len(), 1);
+        assert_eq!(frontier.priority_queues[1].len(), 0);
+    }
 
+    /// When queue[0] has entries but queue[1] is empty, queue[1] is the first
+    /// empty queue encountered so the URL should land there.
+    #[test]
+    fn test_second_empty_queue_gets_filled_before_gain_comparison() {
+        let mut frontier = UrlFrontier::new();
+        frontier.priority_queues[0].push_front(0, LOW_PRIORITY_URL_WEIGHT);
 
+        frontier.allocate_url_to_priority_queue(1, HIGH_PRIORITY_URL_WEIGHT);
 
+        assert_eq!(frontier.priority_queues[1].len(), 1);
+        assert_eq!(frontier.priority_queues[0].len(), 1); // untouched
+    }
 
+    /// A high-weight URL added when both queues have low averages should go to
+    /// whichever queue it improves the most. With identical starting averages the
+    /// gain is equal so queue[0] wins (it's the default `lowest_prio_idx`).
+    #[test]
+    fn test_high_weight_url_routed_to_queue_with_largest_gain() {
+        let mut frontier = frontier_with_both_queues_populated(LOW_PRIORITY_URL_WEIGHT, 3);
 
+        let before_q0 = frontier.priority_queues[0].len();
+        let before_q1 = frontier.priority_queues[1].len();
 
+        frontier.allocate_url_to_priority_queue(99, HIGH_PRIORITY_URL_WEIGHT);
 
+        let added_to_q0 = frontier.priority_queues[0].len() == before_q0 + 1;
+        let added_to_q1 = frontier.priority_queues[1].len() == before_q1 + 1;
 
+        assert!(
+            added_to_q0 ^ added_to_q1,
+            "URL should be added to exactly one priority queue"
+        );
+    }
 
+    /// A low-weight URL that can't improve any queue's average should fall back
+    /// to priority_queues[0] (the default `lowest_prio_idx`).
+    #[test]
+    fn test_low_weight_url_defaults_to_queue_zero() {
+        let mut frontier = frontier_with_both_queues_populated(HIGH_PRIORITY_URL_WEIGHT, 3);
+        let before_q0 = frontier.priority_queues[0].len();
+
+        frontier.allocate_url_to_priority_queue(99, LOW_PRIORITY_URL_WEIGHT);
+
+        assert_eq!(
+            frontier.priority_queues[0].len(),
+            before_q0 + 1,
+            "Low-weight URL that improves no queue should fall back to priority_queues[0]"
+        );
+    }
+
+    /// After allocation, sum_priority_weights and avg_priority_weight on the
+    /// receiving queue must reflect the newly added URL.
+    #[test]
+    fn test_queue_metadata_updated_after_allocation() {
+        let mut frontier = UrlFrontier::new();
+        // Seed both queues so no early-return fires, then add a controlled URL.
+        frontier.priority_queues[0].push_front(0, LOW_PRIORITY_URL_WEIGHT);
+        frontier.priority_queues[1].push_front(1, LOW_PRIORITY_URL_WEIGHT);
+
+        // Both queues have avg = LOW. Adding HIGH_PRIORITY_URL_WEIGHT should
+        // go to whichever has the larger gain (tied → queue[0]).
+        frontier.allocate_url_to_priority_queue(2, HIGH_PRIORITY_URL_WEIGHT);
+
+        let q = &frontier.priority_queues[0];
+        let expected_sum = LOW_PRIORITY_URL_WEIGHT + HIGH_PRIORITY_URL_WEIGHT;
+        let expected_avg = expected_sum / 2.0;
+
+        assert!(
+            (q.sum_priority_weights - expected_sum).abs() < f64::EPSILON,
+            "sum_priority_weights should be {expected_sum}, got {}",
+            q.sum_priority_weights
+        );
+        assert!(
+            (q.avg_priority_weight - expected_avg).abs() < f64::EPSILON,
+            "avg_priority_weight should be {expected_avg}, got {}",
+            q.avg_priority_weight
+        );
+    }
+}
