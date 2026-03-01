@@ -2,14 +2,28 @@ use std::collections::VecDeque;
 
 /// Starting capacity of AllURls SoA object
 const ALLURLS_CAPACITY: usize = 100000;
+
 /// How many separate prioritization queues can exist
-const PRIO_QUEUE_INSTANCES: usize = 3;
+const PRIO_QUEUE_INSTANCES: usize = 2;
+
 /// How many separate domain queues can exist
 //const DOMAIN_QUEUE_INSTANCES: usize = 3;
+
 /// Starting capacity of prioritization VecDeque objects
 const PRIO_QUEUE_CAPACITY: usize = 25000;
 /// Starting capacity of domain VecDeque objects
 const DOMAIN_QUEUE_CAPACITY: usize = 25000;
+
+/// Max number of elements in the queue before it gets sent to back queue router
+const PRIO_QUEUE_LIMIT: usize = 10;
+/// Max number of elements in the queue before it gets sent to back queue router
+const DOMAIN_QUEUE_LIMIT: usize = 10;
+
+const HIGH_PRIORITY_QUEUE_IDX: usize = 0;
+const MID_PRIORITY_QUEUE_IDX: usize = 1;
+const LOW_PRIORITY_QUEUE_IDX: usize = 1;
+
+const HIGH_PRIORITY_DOMAINS: &[&str] = &["google", "youtube", "wikipedia"];
 
 #[derive(Debug)]
 pub struct UrlFrontier {
@@ -169,7 +183,6 @@ impl UrlFrontier {
             prioritization_queues: [
                 VecDeque::with_capacity(PRIO_QUEUE_CAPACITY),
                 VecDeque::with_capacity(PRIO_QUEUE_CAPACITY),
-                VecDeque::with_capacity(PRIO_QUEUE_CAPACITY),
             ],
             domain_queues: vec![
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
@@ -182,12 +195,31 @@ impl UrlFrontier {
     // Pushes a url onto the frontier, and returns its index in the frontier.
     pub fn add_url(&mut self, url: Url) -> usize {
         let url_idx = self.urls_to_prioritize.add(&url);
-        self.prioritize_url(&url);
+        self.prioritize_url(&url, url_idx);
         url_idx
     }
 
-    fn prioritize_url(&self, url: &Url) {
+    fn prioritize_url(&mut self, url: &Url, url_idx: usize) {
+        let mut iter = url.host_name.split(".");
 
+        if let Some(domain_name) = iter.nth(0) {
+            // the zeroth element was consumed by above line
+            // so we call nth(0) again to actually get the string
+            // at index 1
+            if iter.nth(0) == None {
+                println!("Url '{}' does not appear to be formatted correctly. Skipping prioritization...", &url.host_name);
+                return
+            }
+
+            if HIGH_PRIORITY_DOMAINS.contains(&domain_name) {
+                // Place in high prio queue
+                println!("url '{}' will be sent to high priority queue...", &url.host_name);
+                self.prioritization_queues[HIGH_PRIORITY_QUEUE_IDX].push_front(url_idx);
+            } else {
+                println!("url '{}' will be sent to low priority queue...", &url.host_name);
+                self.prioritization_queues[LOW_PRIORITY_QUEUE_IDX].push_front(url_idx);
+            }
+        }
     }
 
 
