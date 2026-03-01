@@ -1,3 +1,5 @@
+use rand::{rng, RngExt};
+
 use crate::{
     constants::{
         ALLURLS_CAPACITY, DOMAIN_QUEUE_CAPACITY, HIGH_PRIORITY_DOMAINS, HIGH_PRIORITY_URL_WEIGHT,
@@ -119,16 +121,18 @@ impl AllUrls {
 
     /// Composes a Url struct based on the url index if it hasn't been soft-deleted
     pub fn compose_url_from_idx(&self, url_idx: usize) -> Option<Url> {
-        if self.free_slots.contains(&url_idx) { return None };
-        Some(Url { 
-            priority_weight: self.priority_weight[url_idx], 
-            full_url: self.full_url[url_idx].clone(), 
-            domain_rank: self.domain_rank[url_idx], 
-            crawl_delay_ms: self.crawl_delay_ms[url_idx], 
-            is_robots_allowed: self.is_robots_allowed[url_idx], 
-            requires_javascript: self.requires_javascript[url_idx], 
-            is_sitemap_url: self.is_sitemap_url[url_idx], 
-            response_time_ms: self.response_time_ms[url_idx]
+        if self.free_slots.contains(&url_idx) {
+            return None;
+        };
+        Some(Url {
+            priority_weight: self.priority_weight[url_idx],
+            full_url: self.full_url[url_idx].clone(),
+            domain_rank: self.domain_rank[url_idx],
+            crawl_delay_ms: self.crawl_delay_ms[url_idx],
+            is_robots_allowed: self.is_robots_allowed[url_idx],
+            requires_javascript: self.requires_javascript[url_idx],
+            is_sitemap_url: self.is_sitemap_url[url_idx],
+            response_time_ms: self.response_time_ms[url_idx],
         })
     }
 
@@ -191,7 +195,7 @@ impl AllUrls {
     /// allow this idx to be used by a new Url when another is pushed
     pub fn remove(&mut self, idx: usize) {
         if self.free_slots.contains(&idx) {
-            return
+            return;
         }
 
         self.free_slots.push(idx);
@@ -236,13 +240,18 @@ impl UrlFrontier {
     /// is greater than the current average weight
     fn allocate_url_to_priority_queue(&mut self, url_idx: usize, priority_weight: f64) {
         if self.priority_queues.len() == 0 {
-            panic!("Somehow priority queues are empty!");
+            panic!("Somehow we have no priority queues!");
         }
 
-        let lowest_prio_avg_weight: f64 = self.priority_queues[0].avg_priority_weight;
-        let new_avg_weight = (self.priority_queues[0].sum_priority_weights + priority_weight)
-            / (self.priority_queues[0].len() as f64 + 1.0);
-        let mut lowest_prio_idx: usize = 0;
+        let mut rng = rng();
+
+        let random_idx = rng.random_range(..self.priority_queues.len());
+
+        let lowest_prio_avg_weight: f64 = self.priority_queues[random_idx].avg_priority_weight;
+        let new_avg_weight = (self.priority_queues[random_idx].sum_priority_weights
+            + priority_weight)
+            / (self.priority_queues[random_idx].len() as f64 + 1.0);
+        let mut lowest_prio_idx: usize = random_idx;
         let mut largest_gain: f64 = new_avg_weight - lowest_prio_avg_weight;
 
         for (idx, priority_queue) in &mut self.priority_queues.iter_mut().enumerate() {
@@ -263,8 +272,6 @@ impl UrlFrontier {
         }
 
         println!("Allocating url with priority_weight '{priority_weight}' to priority_queue {lowest_prio_idx}");
-        // If the priority_weight doesn't improve any priority queues average_priority_weight, just
-        // assign it to the first priority_queue. In future, randomize. TODO
         self.priority_queues[lowest_prio_idx].push_front(url_idx, priority_weight);
     }
 }
@@ -331,18 +338,21 @@ mod tests {
     }
 
     /// A low-weight URL that can't improve any queue's average should fall back
-    /// to priority_queues[0] (the default `lowest_prio_idx`).
+    /// to a randomly chosen queue. Assert exactly one queue grew.
     #[test]
-    fn test_low_weight_url_defaults_to_queue_zero() {
+    fn test_low_weight_url_falls_back_to_random_queue() {
         let mut frontier = frontier_with_both_queues_populated(HIGH_PRIORITY_URL_WEIGHT, 3);
         let before_q0 = frontier.priority_queues[0].len();
+        let before_q1 = frontier.priority_queues[1].len();
 
         frontier.allocate_url_to_priority_queue(99, LOW_PRIORITY_URL_WEIGHT);
 
-        assert_eq!(
-            frontier.priority_queues[0].len(),
-            before_q0 + 1,
-            "Low-weight URL that improves no queue should fall back to priority_queues[0]"
+        let added_to_q0 = frontier.priority_queues[0].len() == before_q0 + 1;
+        let added_to_q1 = frontier.priority_queues[1].len() == before_q1 + 1;
+
+        assert!(
+            added_to_q0 ^ added_to_q1,
+            "Low-weight URL should fall back to exactly one priority queue"
         );
     }
 
@@ -351,15 +361,19 @@ mod tests {
     #[test]
     fn test_queue_metadata_updated_after_allocation() {
         let mut frontier = UrlFrontier::new();
-        // Seed both queues so no early-return fires, then add a controlled URL.
+        // Seed both queues so no early-return fires.
         frontier.priority_queues[0].push_front(0, LOW_PRIORITY_URL_WEIGHT);
         frontier.priority_queues[1].push_front(1, LOW_PRIORITY_URL_WEIGHT);
 
-        // Both queues have avg = LOW. Adding HIGH_PRIORITY_URL_WEIGHT should
-        // go to whichever has the larger gain (tied → queue[0]).
         frontier.allocate_url_to_priority_queue(2, HIGH_PRIORITY_URL_WEIGHT);
 
-        let q = &frontier.priority_queues[0];
+        // Find whichever queue received the new URL.
+        let q = if frontier.priority_queues[0].len() == 2 {
+            &frontier.priority_queues[0]
+        } else {
+            &frontier.priority_queues[1]
+        };
+
         let expected_sum = LOW_PRIORITY_URL_WEIGHT + HIGH_PRIORITY_URL_WEIGHT;
         let expected_avg = expected_sum / 2.0;
 
