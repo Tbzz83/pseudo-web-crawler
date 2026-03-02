@@ -277,6 +277,15 @@ impl UrlFrontier {
         self.priority_queues[lowest_prio_idx].push_front(url_idx, priority_weight);
     }
 
+    /// Gets the PriorityQueue at queue_idx and replaces it's value with an 
+    /// empty PriorityQueue in it's place. Returns the one originally at queue_idx
+    pub fn get_priority_queue(&mut self, queue_idx: usize) -> PriorityQueue {
+        std::mem::replace(
+            &mut self.priority_queues[queue_idx], 
+            PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY),
+        )
+    }
+
     fn select_queue_idx(&mut self) -> usize {
         assert!(self.priority_queues.len() > 0, "Somehow we have no priority queues!");
 
