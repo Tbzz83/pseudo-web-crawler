@@ -25,5 +25,6 @@ fn main() {
     frontier.add_url(Url::new("tumblr.com"));
     frontier.add_url(Url::new("somerandomblog.com"));
 
+    dbg!(frontier.get_highest_priority_queue());
     dbg!(frontier);
 }
