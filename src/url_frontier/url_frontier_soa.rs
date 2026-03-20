@@ -90,7 +90,7 @@ impl Url {
 }
 
 #[derive(Debug)]
-pub struct AllUrls {
+struct AllUrls {
     size: usize,
     priority_weight: Vec<f64>,
     /// Vector indicating indexes that should be overwritten. ie. soft-deleted
@@ -199,7 +199,7 @@ impl AllUrls {
     /// allow this idx to be used by a new Url when another is pushed
     pub fn remove(&mut self, idx: usize) {
         if self.free_slots.contains(&idx) {
-            return;
+            panic!("Double free of url index");
         }
 
         self.free_slots.push(idx);
