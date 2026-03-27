@@ -1,4 +1,5 @@
 use rand::{rng, RngExt};
+use tokio::sync::RwLock;
 
 use crate::{
     constants::{
@@ -14,7 +15,8 @@ use std::collections::VecDeque;
 pub struct UrlFrontier {
     urls: AllUrls,
     // Priority is in order from highest to lowest priority
-    priority_queues: [PriorityQueue; PRIO_QUEUE_INSTANCES],
+
+    priority_queues: RwLock<[PriorityQueue; PRIO_QUEUE_INSTANCES]>,
     domain_queues: Vec<VecDeque<usize>>,
 }
 

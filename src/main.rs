@@ -1,9 +1,11 @@
 use crate::url_frontier::url_frontier_soa::{Url, UrlFrontier};
+use tokio::{join, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle, time::sleep};
 
 mod constants;
 mod url_frontier;
 
-fn main() {
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() {
     let mut frontier = UrlFrontier::new();
 
     // High priority
