@@ -42,18 +42,19 @@ impl PriorityQueue {
     pub async fn push(&mut self, url_idx: usize) {
         let tx_clone = self.tx.clone();
         tokio::spawn(async move {
-            tx_clone.send(url_idx);
+            tx_clone.send(url_idx).await;
         });
     }
 
     pub async fn listen_and_notify(&mut self, tx_out: Sender<usize>, notify: Arc<Semaphore<>>) {
         let rx = self.rx.take();
         let tx_out = tx_out.clone();
+        let priority = self.priority.clone();
         tokio::spawn(async move {
             if let Some(mut rx) = rx {
                 while let Some(url_idx) = rx.recv().await {
                     notify.add_permits(1);
-                    tx_out.send(url_idx);
+                    tx_out.send(url_idx).await;
                 }
             } else {
                 panic!("Receiver cannot be acquired in pop_continous()");

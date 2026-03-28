@@ -9,20 +9,8 @@ use crate::{
     },
     url_frontier::priority_queue::{Priority, PriorityQueue},
 };
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, sync::{Arc, Mutex}};
 
-#[derive(Debug)]
-pub struct UrlFrontier {
-    urls: AllUrls,
-    // Priority is in order from highest to lowest priority
-
-    priority_queues: [PriorityQueue; PRIO_QUEUE_INSTANCES],
-    priority_queues_senders: [Sender<usize>; PRIO_QUEUE_INSTANCES],
-    priority_queues_receivers: [Receiver<usize>; PRIO_QUEUE_INSTANCES],
-    priority_queues_notify_sem: Arc<Semaphore>,
-
-    domain_queues: Vec<VecDeque<usize>>,
-}
 
 #[derive(Debug)]
 pub struct Url {
@@ -184,6 +172,7 @@ impl AllUrls {
     pub fn add(&mut self, url: &Url) -> usize {
         let url_idx: usize;
         if let Some(free_idx) = self.free_slots.pop() {
+            self.priority[free_idx] = url.priority.clone();
             self.full_url[free_idx] = url.full_url.clone();
             self.domain_rank[free_idx] = url.domain_rank;
             self.crawl_delay_ms[free_idx] = url.crawl_delay_ms;
@@ -193,7 +182,8 @@ impl AllUrls {
             self.response_time_ms[free_idx] = url.response_time_ms;
             url_idx = free_idx;
         } else {
-            self.size += 1;
+            url_idx = self.size;
+            self.priority.push(url.priority.clone());
             self.full_url.push(url.full_url.clone());
             self.domain_rank.push(url.domain_rank);
             self.crawl_delay_ms.push(url.crawl_delay_ms);
@@ -201,7 +191,7 @@ impl AllUrls {
             self.requires_javascript.push(url.requires_javascript);
             self.is_sitemap_url.push(url.is_sitemap_url);
             self.response_time_ms.push(url.response_time_ms);
-            url_idx = self.size
+            self.size += 1;
         }
 
         url_idx
@@ -222,10 +212,24 @@ impl AllUrls {
     }
 }
 
+#[derive(Debug)]
+pub struct UrlFrontier {
+    urls: Arc<Mutex<AllUrls>>,
+    // Priority is in order from highest to lowest priority
+
+    priority_queues: [PriorityQueue; PRIO_QUEUE_INSTANCES],
+    priority_queues_senders: Option<[Sender<usize>; PRIO_QUEUE_INSTANCES]>,
+    priority_queues_receivers: Option<[Receiver<usize>; PRIO_QUEUE_INSTANCES]>,
+    priority_queues_notify_sem: Arc<Semaphore>,
+
+    domain_queues: Vec<VecDeque<usize>>,
+}
+
 impl UrlFrontier {
     pub async fn new() -> UrlFrontier {
         Self::with_capacity(ALLURLS_CAPACITY).await
     }
+
 
     pub async fn with_capacity(capacity: usize) -> UrlFrontier {
         let urls: AllUrls = AllUrls::with_capacity(capacity);
@@ -233,8 +237,9 @@ impl UrlFrontier {
         let mut q1 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::High);
         let mut q2 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::Medium);
         let mut q3 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::Low);
-        let (tx1, rx1) = channel(PRIO_QUEUE_CAPACITY); // Have to hold senders so they aren't
-        // dropped
+
+        // Have to hold senders so they aren't dropped
+        let (tx1, rx1) = channel(PRIO_QUEUE_CAPACITY); 
         let (tx2, rx2) = channel(PRIO_QUEUE_CAPACITY);
         let (tx3, rx3) = channel(PRIO_QUEUE_CAPACITY);
         let notify_sem = Arc::new(Semaphore::new(0));
@@ -244,7 +249,7 @@ impl UrlFrontier {
         q3.listen_and_notify(tx3.clone(), notify_sem.clone()).await;
 
         UrlFrontier {
-            urls: urls,
+            urls: Arc::new(Mutex::new(urls)),
             priority_queues: [
                 q1,
                 q2,
@@ -255,23 +260,55 @@ impl UrlFrontier {
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
             ],
-            priority_queues_senders: [
+            priority_queues_senders: Some([
                 tx1, 
                 tx2, 
                 tx3,
-            ],
-            priority_queues_receivers: [
+            ]),
+            priority_queues_receivers: Some([
                 rx1,
                 rx2,
                 rx3,
-            ],
+            ]),
             priority_queues_notify_sem: notify_sem,
+        }
+    }
+
+    pub async fn run(
+        &mut self,
+//        _senders: [Sender<usize>; PRIO_QUEUE_INSTANCES],
+//        mut receivers: [Receiver<usize>; PRIO_QUEUE_INSTANCES],
+//        notify_sem: Arc<Semaphore>
+    )
+    {
+        if let Some(mut receivers) = self.priority_queues_receivers.take() {
+            let notify_sem = self.priority_queues_notify_sem.clone();
+            let all_urls = self.urls.clone();
+            tokio::spawn(async move {
+                'outer: loop {
+                    dbg!(notify_sem.available_permits());
+                    let _permit = notify_sem.acquire().await.unwrap();
+
+
+                    // Automatically goes highest to lowest priority based on index
+                    'inner: for (idx, receiver) in &mut receivers.iter_mut().enumerate() {
+                        if receiver.is_empty() {
+                            continue;
+                        }
+
+                        if let Some(url_idx) = receiver.recv().await {
+                            println!("\nReceived a url: {:?}\n",all_urls.lock().unwrap().compose_url_from_idx(url_idx));
+                            break 'inner;
+                        }
+                    }
+                }
+            });
         }
     }
 
     /// Pushes a url onto the frontier, and returns its index in the frontier.
     pub async fn add_url(&mut self, url: Url) -> usize {
-        let url_idx = self.urls.add(&url);
+        let url_idx = self.urls.lock().unwrap().add(&url);
 
         match url.priority {
             Priority::High => self.priority_queues[0].push(url_idx).await,
