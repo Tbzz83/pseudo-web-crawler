@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, sync::{Arc, atomic::AtomicI32}};
 
-use tokio::sync::{RwLock, mpsc::{self, Receiver, Sender, channel}};
+use tokio::sync::{mpsc::{self, channel, Receiver, Sender}, RwLock, Semaphore};
 
 /// NOTE
 /// The plan for this is that this struct will have a vec deque.
@@ -15,7 +15,6 @@ use tokio::sync::{RwLock, mpsc::{self, Receiver, Sender, channel}};
 pub struct PriorityQueue {
     tx: Sender<usize>,
     rx: Option<Receiver<usize>>,
-    tx_out: Sender<usize>,
     priority: Priority,
 }
 
@@ -27,16 +26,15 @@ pub enum Priority {
 }
 
 impl PriorityQueue {
-    pub fn new(priority: Priority, tx_out: Sender<usize>) -> PriorityQueue {
-        Self::with_capacity(32, priority, tx_out)
+    pub fn new(priority: Priority) -> PriorityQueue {
+        Self::with_capacity(32, priority)
     }
 
-    pub fn with_capacity(capacity: usize, priority: Priority, tx_out: Sender<usize>) -> PriorityQueue {
+    pub fn with_capacity(capacity: usize, priority: Priority) -> PriorityQueue {
         let (tx, rx) = channel::<usize>(capacity);
         PriorityQueue {
             tx,
             rx: Some(rx),
-            tx_out,
             priority,
         }
     }
@@ -48,12 +46,13 @@ impl PriorityQueue {
         });
     }
 
-    pub async fn pop_continuous(&mut self) {
+    pub async fn listen_and_notify(&mut self, tx_out: Sender<usize>, notify: Arc<Semaphore<>>) {
         let rx = self.rx.take();
-        let tx_out = self.tx_out.clone();
+        let tx_out = tx_out.clone();
         tokio::spawn(async move {
             if let Some(mut rx) = rx {
                 while let Some(url_idx) = rx.recv().await {
+                    notify.add_permits(1);
                     tx_out.send(url_idx);
                 }
             } else {

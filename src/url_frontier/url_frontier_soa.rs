@@ -1,5 +1,5 @@
 use rand::{rng, RngExt};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc::{channel, Receiver, Sender}, RwLock, Semaphore};
 
 use crate::{
     constants::{
@@ -7,16 +7,20 @@ use crate::{
         LOW_PRIORITY_URL_WEIGHT, MID_PRIORITY_DOMAINS, MID_PRIORITY_URL_WEIGHT,
         PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES,
     },
-    url_frontier::priority_queue::PriorityQueue,
+    url_frontier::priority_queue::{Priority, PriorityQueue},
 };
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
 #[derive(Debug)]
 pub struct UrlFrontier {
     urls: AllUrls,
     // Priority is in order from highest to lowest priority
 
-    priority_queues: RwLock<[PriorityQueue; PRIO_QUEUE_INSTANCES]>,
+    priority_queues: [PriorityQueue; PRIO_QUEUE_INSTANCES],
+    priority_queues_senders: [Sender<usize>; PRIO_QUEUE_INSTANCES],
+    priority_queues_receivers: [Receiver<usize>; PRIO_QUEUE_INSTANCES],
+    priority_queues_notify_sem: Arc<Semaphore>,
+
     domain_queues: Vec<VecDeque<usize>>,
 }
 
@@ -125,6 +129,14 @@ impl AllUrls {
         Self::with_capacity(ALLURLS_CAPACITY)
     }
 
+    pub fn get_full_url(&self, url_idx: usize) -> Option<String> {
+        if let Some(url) = self.full_url.get(url_idx) {
+            return Some(url.to_owned());
+        }
+
+        None
+    }
+
     /// Composes a Url struct based on the url index if it hasn't been soft-deleted
     pub fn compose_url_from_idx(&self, url_idx: usize) -> Option<Url> {
         if self.free_slots.contains(&url_idx) {
@@ -213,70 +225,51 @@ impl AllUrls {
 }
 
 impl UrlFrontier {
-    pub fn new() -> UrlFrontier {
-        Self::with_capacity(ALLURLS_CAPACITY)
+    pub async fn new() -> UrlFrontier {
+        Self::with_capacity(ALLURLS_CAPACITY).await
     }
 
-    pub fn with_capacity(capacity: usize) -> UrlFrontier {
+    pub async fn with_capacity(capacity: usize) -> UrlFrontier {
         let urls: AllUrls = AllUrls::with_capacity(capacity);
+        
+        let mut q1 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::High);
+        let mut q2 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::Medium);
+        let (tx1, rx1) = channel(PRIO_QUEUE_CAPACITY); // Have to hold senders so they aren't
+        // dropped
+        let (tx2, rx2) = channel(PRIO_QUEUE_CAPACITY);
+        let notify_sem = Arc::new(Semaphore::new(0));
+
+        q1.listen_and_notify(tx1.clone(), notify_sem.clone());
+        q2.listen_and_notify(tx2.clone(), notify_sem.clone());
+
         UrlFrontier {
             urls: urls,
             priority_queues: [
-                PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY),
-                PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY),
+                q1,
+                q2,
             ],
             domain_queues: vec![
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
             ],
+            priority_queues_senders: [
+                tx1, 
+                tx2, 
+            ],
+            priority_queues_receivers: [
+                rx1,
+                rx2,
+            ],
+            priority_queues_notify_sem: notify_sem,
         }
     }
 
     /// Pushes a url onto the frontier, and returns its index in the frontier.
     pub fn add_url(&mut self, url: Url) -> usize {
         let url_idx = self.urls.add(&url);
-        self.allocate_url_to_priority_queue(url_idx, url.priority_weight);
+
         url_idx
-    }
-
-    /// The current allocation method loops through all our priority queues, and
-    /// tries to add the new url such that it increases the priority_queue.avg_prioritiy_weights.
-    /// It does this by following calculating the new theoretical average weight and seeing if that
-    /// is greater than the current average weight
-    fn allocate_url_to_priority_queue(&mut self, url_idx: usize, priority_weight: f64) {
-        assert!(self.priority_queues.len() > 0, "Somehow we have no priority queues!");
-
-        let mut rng = rng();
-
-        let random_idx = rng.random_range(..self.priority_queues.len());
-
-        let lowest_prio_avg_weight: f64 = self.priority_queues[random_idx].avg_priority_weight;
-        let new_avg_weight = (self.priority_queues[random_idx].sum_priority_weights
-            + priority_weight)
-            / (self.priority_queues[random_idx].len() as f64 + 1.0);
-        let mut lowest_prio_idx: usize = random_idx;
-        let mut largest_gain: f64 = new_avg_weight - lowest_prio_avg_weight;
-
-        for (idx, priority_queue) in &mut self.priority_queues.iter_mut().enumerate() {
-            // If a queue is empty always add a url idx
-            if priority_queue.len() == 0 {
-                lowest_prio_idx = idx;
-                break;
-            }
-
-            let new_avg_weight = (priority_queue.sum_priority_weights + priority_weight)
-                / (priority_queue.len() as f64 + 1.0);
-            if new_avg_weight > priority_queue.avg_priority_weight
-                && (new_avg_weight - priority_queue.avg_priority_weight) > largest_gain
-            {
-                lowest_prio_idx = idx;
-                largest_gain = new_avg_weight - priority_queue.avg_priority_weight;
-            }
-        }
-
-        println!("Allocating url with priority_weight '{priority_weight}' to priority_queue {lowest_prio_idx}");
-        self.priority_queues[lowest_prio_idx].push_front(url_idx, priority_weight);
     }
 
     /// Picks the best queue_index with highest priority and returns it. 
