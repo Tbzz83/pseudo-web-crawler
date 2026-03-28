@@ -2,7 +2,7 @@
 pub const ALLURLS_CAPACITY: usize = 100000;
 
 /// How many separate prioritization queues can exist
-pub const PRIO_QUEUE_INSTANCES: usize = 2;
+pub const PRIO_QUEUE_INSTANCES: usize = 3;
 
 /// How many separate domain queues can exist
 //pub const DOMAIN_QUEUE_INSTANCES: usize = 3;

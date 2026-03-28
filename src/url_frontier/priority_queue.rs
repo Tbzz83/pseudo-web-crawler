@@ -18,7 +18,7 @@ pub struct PriorityQueue {
     priority: Priority,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Priority {
     High, 
     Medium,
