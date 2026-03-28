@@ -14,52 +14,51 @@ use tokio::sync::{RwLock, mpsc::{self, Receiver, Sender, channel}};
 #[derive(Debug)]
 pub struct PriorityQueue {
     tx: Sender<usize>,
-    rx: Receiver<usize>,
-    /// value between 0 - 1. The closer it is to
-    /// 1, the higher its priority
-    avg_priority_weight: Arc<RwLock<f64>>,
-    count: Arc<RwLock<usize>>,
+    rx: Option<Receiver<usize>>,
+    tx_out: Sender<usize>,
+    priority: Priority,
+}
+
+#[derive(Debug)]
+pub enum Priority {
+    High, 
+    Medium,
+    Low
 }
 
 impl PriorityQueue {
-    pub fn new() -> PriorityQueue {
-        Self::with_capacity(32)
+    pub fn new(priority: Priority, tx_out: Sender<usize>) -> PriorityQueue {
+        Self::with_capacity(32, priority, tx_out)
     }
 
-    pub fn with_capacity(capacity: usize) -> PriorityQueue {
+    pub fn with_capacity(capacity: usize, priority: Priority, tx_out: Sender<usize>) -> PriorityQueue {
         let (tx, rx) = channel::<usize>(capacity);
         PriorityQueue {
             tx,
-            rx,
-            count: Arc::new(RwLock::new(0)),
-            avg_priority_weight: Arc::new(RwLock::new(0.00)),
+            rx: Some(rx),
+            tx_out,
+            priority,
         }
     }
 
-    pub async fn push(&mut self, url_idx: usize, priority_weight: f64) {
+    pub async fn push(&mut self, url_idx: usize) {
         let tx_clone = self.tx.clone();
-        let avg_lock = self.avg_priority_weight.clone();
-        let count_lock = self.count.clone();
-
         tokio::spawn(async move {
-            let mut avg_priority_weight = avg_lock.write().await;
-            let mut count = count_lock.write().await;
-            *avg_priority_weight = ((*avg_priority_weight * *count as f64) + priority_weight)/(*count as f64 + 1.0);
-            *count += 1;
             tx_clone.send(url_idx);
         });
     }
 
-    pub async fn pop(&mut self) -> Option<usize> {
-        todo!("Need a lookup priority_weight given url_idx");
-        if let Some(url_idx) = self.rx.recv().await {
-            let mut avg_priority_weight = self.avg_priority_weight.write().await;
-            let mut count = self.count.write().await;
-            *avg_priority_weight = ((*avg_priority_weight * *count as f64) - priority_weight)/(*count as f64 - 1.0);
-            *count -= 1;
-            return Some(url_idx)
-        }
-
-        None
+    pub async fn pop_continuous(&mut self) {
+        let rx = self.rx.take();
+        let tx_out = self.tx_out.clone();
+        tokio::spawn(async move {
+            if let Some(mut rx) = rx {
+                while let Some(url_idx) = rx.recv().await {
+                    tx_out.send(url_idx);
+                }
+            } else {
+                panic!("Receiver cannot be acquired in pop_continous()");
+            }
+        });
     }
 }
