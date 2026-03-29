@@ -68,6 +68,7 @@ impl PriorityQueue {
         tokio::spawn(async move {
             if let Some(mut rx) = rx {
                 while let Some(url_idx) = rx.recv().await {
+                    // Release increments the semaphore count by 1
                     notify.release();
                     tx_out.send(url_idx).await;
                 }

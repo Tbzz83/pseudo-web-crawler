@@ -15,18 +15,18 @@ async fn main() {
     frontier.add_url(Url::new("nytimes.com")).await;
 
     // Low priority
-//    frontier.add_url(Url::new("yahoo.com")).await;
-//    frontier.add_url(Url::new("blogspot.com")).await;
-//    frontier.add_url(Url::new("tumblr.com")).await;
-//    frontier.add_url(Url::new("somerandomblog.com")).await;
+    frontier.add_url(Url::new("yahoo.com")).await;
+    frontier.add_url(Url::new("blogspot.com")).await;
+    frontier.add_url(Url::new("tumblr.com")).await;
+    frontier.add_url(Url::new("somerandomblog.com")).await;
 
     // High priority
     frontier.add_url(Url::new("google.com")).await;
-//    frontier.add_url(Url::new("youtube.com")).await;
-//    frontier.add_url(Url::new("wikipedia.com")).await;
-//    frontier.add_url(Url::new("github.com")).await;
-//    frontier.add_url(Url::new("reddit.com")).await;
-//    frontier.add_url(Url::new("stackoverflow.com")).await;
+    frontier.add_url(Url::new("youtube.com")).await;
+    frontier.add_url(Url::new("wikipedia.com")).await;
+    frontier.add_url(Url::new("github.com")).await;
+    frontier.add_url(Url::new("reddit.com")).await;
+    frontier.add_url(Url::new("stackoverflow.com")).await;
 
     //dbg!(frontier);
     loop {

@@ -287,6 +287,7 @@ impl UrlFrontier {
             let all_urls = self.urls.clone();
             tokio::spawn(async move {
                 'outer: loop {
+                    // Acquire decrements the semaphore count by 1
                     notify_sem.acquire();
 
                     // Automatically goes highest to lowest priority based on index
