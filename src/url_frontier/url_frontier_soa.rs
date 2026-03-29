@@ -1,5 +1,6 @@
 use rand::{rng, RngExt};
-use tokio::sync::{mpsc::{channel, Receiver, Sender}, RwLock, Semaphore};
+use std_semaphore::Semaphore;
+use tokio::sync::{mpsc::{channel, Receiver, Sender}, RwLock};
 
 use crate::{
     constants::{
@@ -212,7 +213,7 @@ impl AllUrls {
     }
 }
 
-#[derive(Debug)]
+#[derive()]
 pub struct UrlFrontier {
     urls: Arc<Mutex<AllUrls>>,
     // Priority is in order from highest to lowest priority
@@ -286,14 +287,13 @@ impl UrlFrontier {
             let all_urls = self.urls.clone();
             tokio::spawn(async move {
                 'outer: loop {
-                    dbg!(notify_sem.available_permits());
-                    let _permit = notify_sem.acquire().await.unwrap();
-
+                    notify_sem.acquire();
 
                     // Automatically goes highest to lowest priority based on index
                     'inner: for (idx, receiver) in &mut receivers.iter_mut().enumerate() {
                         if receiver.is_empty() {
-                            continue;
+                            println!("\n{:?} priority queue is empty", Priority::try_from(idx).unwrap());
+                            continue; 
                         }
 
                         if let Some(url_idx) = receiver.recv().await {

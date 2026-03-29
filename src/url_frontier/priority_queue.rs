@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, sync::{Arc, atomic::AtomicI32}};
 
-use tokio::sync::{mpsc::{self, channel, Receiver, Sender}, RwLock, Semaphore};
+use std_semaphore::Semaphore;
+use tokio::sync::{mpsc::{self, channel, Receiver, Sender}, RwLock};
 
 /// NOTE
 /// The plan for this is that this struct will have a vec deque.
@@ -20,10 +21,24 @@ pub struct PriorityQueue {
 
 #[derive(Debug, Clone)]
 pub enum Priority {
-    High, 
-    Medium,
-    Low
+    High = 0, 
+    Medium = 1,
+    Low = 2,
 }
+
+impl TryFrom<usize> for Priority {
+    type Error = String;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Priority::High),
+            1 => Ok(Priority::Medium),
+            2 => Ok(Priority::Low),
+            _ => Err(format!("Invalid value: {}", value)),
+        }
+    }
+}
+
 
 impl PriorityQueue {
     pub fn new(priority: Priority) -> PriorityQueue {
@@ -53,7 +68,7 @@ impl PriorityQueue {
         tokio::spawn(async move {
             if let Some(mut rx) = rx {
                 while let Some(url_idx) = rx.recv().await {
-                    notify.add_permits(1);
+                    notify.release();
                     tx_out.send(url_idx).await;
                 }
             } else {
