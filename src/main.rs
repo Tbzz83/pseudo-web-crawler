@@ -1,30 +1,35 @@
 use crate::url_frontier::url_frontier_soa::{Url, UrlFrontier};
+use tokio::{join, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle, time::sleep};
 
 mod constants;
 mod url_frontier;
 
-fn main() {
-    let mut frontier = UrlFrontier::new();
-
-    // High priority
-    frontier.add_url(Url::new("google.com"));
-    frontier.add_url(Url::new("youtube.com"));
-    frontier.add_url(Url::new("wikipedia.com"));
-    frontier.add_url(Url::new("github.com"));
-    frontier.add_url(Url::new("reddit.com"));
-    frontier.add_url(Url::new("stackoverflow.com"));
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() {
+    let mut frontier = UrlFrontier::new().await;
+    frontier.run().await;
 
     // Mid priority
-    frontier.add_url(Url::new("medium.com"));
-    frontier.add_url(Url::new("hackernews.com"));
-    frontier.add_url(Url::new("nytimes.com"));
+    frontier.add_url(Url::new("medium.com")).await;
+    frontier.add_url(Url::new("hackernews.com")).await;
+    frontier.add_url(Url::new("nytimes.com")).await;
 
     // Low priority
-    frontier.add_url(Url::new("yahoo.com"));
-    frontier.add_url(Url::new("blogspot.com"));
-    frontier.add_url(Url::new("tumblr.com"));
-    frontier.add_url(Url::new("somerandomblog.com"));
+//    frontier.add_url(Url::new("yahoo.com")).await;
+//    frontier.add_url(Url::new("blogspot.com")).await;
+//    frontier.add_url(Url::new("tumblr.com")).await;
+//    frontier.add_url(Url::new("somerandomblog.com")).await;
 
-    dbg!(frontier.get_highest_priority_queue());
-    dbg!(frontier);
+    // High priority
+    frontier.add_url(Url::new("google.com")).await;
+//    frontier.add_url(Url::new("youtube.com")).await;
+//    frontier.add_url(Url::new("wikipedia.com")).await;
+//    frontier.add_url(Url::new("github.com")).await;
+//    frontier.add_url(Url::new("reddit.com")).await;
+//    frontier.add_url(Url::new("stackoverflow.com")).await;
+
+    //dbg!(frontier);
+    loop {
+
+    }
 }

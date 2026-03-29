@@ -1,4 +1,7 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::{Arc, atomic::AtomicI32}};
+
+use std_semaphore::Semaphore;
+use tokio::sync::{mpsc::{self, channel, Receiver, Sender}, RwLock};
 
 /// NOTE
 /// The plan for this is that this struct will have a vec deque.
@@ -11,44 +14,66 @@ use std::collections::VecDeque;
 
 #[derive(Debug)]
 pub struct PriorityQueue {
-    queue: VecDeque<usize>,
-
-    /// value between 0 - 1. The closer it is to
-    /// 1, the higher its priority
-    pub avg_priority_weight: f64,
-    pub sum_priority_weights: f64,
+    tx: Sender<usize>,
+    rx: Option<Receiver<usize>>,
+    priority: Priority,
 }
 
+#[derive(Debug, Clone)]
+pub enum Priority {
+    High = 0, 
+    Medium = 1,
+    Low = 2,
+}
+
+impl TryFrom<usize> for Priority {
+    type Error = String;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Priority::High),
+            1 => Ok(Priority::Medium),
+            2 => Ok(Priority::Low),
+            _ => Err(format!("Invalid value: {}", value)),
+        }
+    }
+}
+
+
 impl PriorityQueue {
-    pub fn new() -> PriorityQueue {
+    pub fn new(priority: Priority) -> PriorityQueue {
+        Self::with_capacity(32, priority)
+    }
+
+    pub fn with_capacity(capacity: usize, priority: Priority) -> PriorityQueue {
+        let (tx, rx) = channel::<usize>(capacity);
         PriorityQueue {
-            queue: VecDeque::new(),
-            avg_priority_weight: 0.0,
-            sum_priority_weights: 0.0,
+            tx,
+            rx: Some(rx),
+            priority,
         }
     }
 
-    pub fn with_capacity(capacity: usize) -> PriorityQueue {
-        PriorityQueue {
-            queue: VecDeque::with_capacity(capacity),
-            avg_priority_weight: 0.0,
-            sum_priority_weights: 0.0,
-        }
+    pub async fn push(&mut self, url_idx: usize) {
+        let tx_clone = self.tx.clone();
+        tokio::spawn(async move {
+            tx_clone.send(url_idx).await;
+        });
     }
 
-    pub fn len(&self) -> usize {
-        self.queue.len()
-    }
-
-    pub fn push_front(&mut self, url_idx: usize, priority_weight: f64) {
-        self.queue.push_front(url_idx);
-        self.sum_priority_weights += priority_weight;
-        self.calculate_avg_priority_weights();
-    }
-
-    fn calculate_avg_priority_weights(&mut self) {
-        if self.queue.len() > 0 {
-            self.avg_priority_weight = self.sum_priority_weights / self.queue.len() as f64;
-        }
+    pub async fn listen_and_notify(&mut self, tx_out: Sender<usize>, notify: Arc<Semaphore<>>) {
+        let rx = self.rx.take();
+        let tx_out = tx_out.clone();
+        let priority = self.priority.clone();
+        tokio::spawn(async move {
+            if let Some(mut rx) = rx {
+                while let Some(url_idx) = rx.recv().await {
+                    notify.release();
+                    tx_out.send(url_idx).await;
+                }
+            } else {
+                panic!("Receiver cannot be acquired in pop_continous()");
+            }
+        });
     }
 }
