@@ -1,5 +1,4 @@
 use crate::url_frontier::url_frontier_soa::{Url, UrlFrontier};
-use tokio::{join, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle, time::sleep};
 
 mod constants;
 mod url_frontier;
