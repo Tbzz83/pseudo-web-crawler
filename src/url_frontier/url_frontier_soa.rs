@@ -125,11 +125,12 @@ impl AllUrls {
     }
 
     /// Composes a Url struct based on the url index if it hasn't been soft-deleted
-    pub fn compose_url_from_idx(&self, url_idx: usize) -> Option<Url> {
+    /// Soft-delete the url index
+    pub fn compose_url_from_idx(&mut self, url_idx: usize) -> Option<Url> {
         if self.free_slots.contains(&url_idx) {
             return None;
         };
-        Some(Url {
+        let url = Some(Url {
             priority: self.priority[url_idx].clone(),
             full_url: self.full_url[url_idx].clone(),
             domain_rank: self.domain_rank[url_idx],
@@ -138,7 +139,11 @@ impl AllUrls {
             requires_javascript: self.requires_javascript[url_idx],
             is_sitemap_url: self.is_sitemap_url[url_idx],
             response_time_ms: self.response_time_ms[url_idx],
-        })
+        });
+
+        self.remove(url_idx);
+
+        url
     }
 
     pub fn with_capacity(capacity: usize) -> AllUrls {
@@ -218,9 +223,9 @@ pub struct UrlFrontier {
     urls: Arc<Mutex<AllUrls>>,
     // Priority is in order from highest to lowest priority
 
-    priority_queues: [PriorityQueue; PRIO_QUEUE_INSTANCES],
-    priority_queues_senders: Option<[Sender<usize>; PRIO_QUEUE_INSTANCES]>,
-    priority_queues_receivers: Option<[Receiver<usize>; PRIO_QUEUE_INSTANCES]>,
+    priority_queues: Option<[PriorityQueue; PRIO_QUEUE_INSTANCES]>,
+//    priority_queues_senders: Option<[Sender<usize>; PRIO_QUEUE_INSTANCES]>,
+//    priority_queues_receivers: Option<[Receiver<usize>; PRIO_QUEUE_INSTANCES]>,
     priority_queues_notify_sem: Arc<Semaphore>,
 
     domain_queues: Vec<VecDeque<usize>>,
@@ -240,39 +245,86 @@ impl UrlFrontier {
         let mut q3 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::Low);
 
         // Have to hold senders so they aren't dropped
-        let (tx1, rx1) = channel(PRIO_QUEUE_CAPACITY); 
-        let (tx2, rx2) = channel(PRIO_QUEUE_CAPACITY);
-        let (tx3, rx3) = channel(PRIO_QUEUE_CAPACITY);
+//        let (tx1, rx1) = channel(PRIO_QUEUE_CAPACITY); 
+//        let (tx2, rx2) = channel(PRIO_QUEUE_CAPACITY);
+//        let (tx3, rx3) = channel(PRIO_QUEUE_CAPACITY);
         let notify_sem = Arc::new(Semaphore::new(0));
 
-        q1.listen_and_notify(tx1.clone(), notify_sem.clone()).await;
-        q2.listen_and_notify(tx2.clone(), notify_sem.clone()).await;
-        q3.listen_and_notify(tx3.clone(), notify_sem.clone()).await;
+        q1.listen_and_notify().await;
+        q2.listen_and_notify().await;
+        q3.listen_and_notify().await;
 
         UrlFrontier {
             urls: Arc::new(Mutex::new(urls)),
-            priority_queues: [
+            priority_queues: Some([
                 q1,
                 q2,
                 q3,
-            ],
+            ]),
             domain_queues: vec![
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
             ],
-            priority_queues_senders: Some([
-                tx1, 
-                tx2, 
-                tx3,
-            ]),
-            priority_queues_receivers: Some([
-                rx1,
-                rx2,
-                rx3,
-            ]),
+//            priority_queues_senders: Some([
+//                tx1, 
+//                tx2, 
+//                tx3,
+//            ]),
+//            priority_queues_receivers: Some([
+//                rx1,
+//                rx2,
+//                rx3,
+//            ]),
             priority_queues_notify_sem: notify_sem,
         }
+    }
+
+    async fn priority_queues_process_urls(&mut self) {
+        let notify_sem = self.priority_queues_notify_sem.clone();
+        let all_urls = self.urls.clone();
+        if let Some(mut priority_queues) = self.priority_queues.take() {
+            tokio::spawn(async move {
+                loop {
+                    notify_sem.acquire();
+
+                    for priority_queue in &priority_queues {
+                        if let Some(rx) = priority_queue.rx {
+                            if rx.is_empty() {
+                                continue;
+                            }
+
+                            // Now we have a receiver with something in it
+                            if let Some(url_idx) = rx.recv().await {
+
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            panic!("Priority queues is None somehow!");
+        }
+
+
+
+                // Automatically goes highest to lowest priority based on index
+                // Have to iterate through receivers to see which has a new message
+//                'inner: for (idx, receiver) in &mut receivers.iter_mut().enumerate() {
+//                    if receiver.is_empty() {
+//                        println!("\n{:?} priority queue is empty", Priority::try_from(idx).unwrap());
+//                        continue; 
+//                    }
+//
+//                    if let Some(url_idx) = receiver.recv().await {
+//                        println!("\nReceived a url: {:?}\n", &url_idx);
+//                        // TODO
+//                        // Send URL to domain queue
+//                        break 'inner;
+//                    }
+//                }
+//            }
+//        });
     }
 
     pub async fn run(
@@ -282,29 +334,7 @@ impl UrlFrontier {
 //        notify_sem: Arc<Semaphore>
     )
     {
-        if let Some(mut receivers) = self.priority_queues_receivers.take() {
-            let notify_sem = self.priority_queues_notify_sem.clone();
-            let all_urls = self.urls.clone();
-            tokio::spawn(async move {
-                'outer: loop {
-                    // Acquire decrements the semaphore count by 1
-                    notify_sem.acquire();
-
-                    // Automatically goes highest to lowest priority based on index
-                    'inner: for (idx, receiver) in &mut receivers.iter_mut().enumerate() {
-                        if receiver.is_empty() {
-                            println!("\n{:?} priority queue is empty", Priority::try_from(idx).unwrap());
-                            continue; 
-                        }
-
-                        if let Some(url_idx) = receiver.recv().await {
-                            println!("\nReceived a url: {:?}\n",all_urls.lock().unwrap().compose_url_from_idx(url_idx));
-                            break 'inner;
-                        }
-                    }
-                }
-            });
-        }
+        self.priority_queues_process_urls().await;
     }
 
     /// Pushes a url onto the frontier, and returns its index in the frontier.
@@ -316,6 +346,9 @@ impl UrlFrontier {
             Priority::Medium => self.priority_queues[1].push(url_idx).await,
             Priority::Low => self.priority_queues[2].push(url_idx).await,
         } 
+
+        let notify_sem = self.priority_queues_notify_sem.clone();
+        notify_sem.release();
 
         url_idx
     }

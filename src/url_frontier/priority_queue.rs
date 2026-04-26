@@ -14,9 +14,9 @@ use tokio::sync::{mpsc::{self, channel, Receiver, Sender}, RwLock};
 
 #[derive(Debug)]
 pub struct PriorityQueue {
-    tx: Sender<usize>,
-    rx: Option<Receiver<usize>>,
-    priority: Priority,
+    pub tx: Sender<usize>,
+    pub rx: Option<Receiver<usize>>,
+    pub priority: Priority,
 }
 
 #[derive(Debug, Clone)]
@@ -61,15 +61,14 @@ impl PriorityQueue {
         });
     }
 
-    pub async fn listen_and_notify(&mut self, tx_out: Sender<usize>, notify: Arc<Semaphore<>>) {
+    pub async fn listen_and_notify(&mut self) {
         let rx = self.rx.take();
-        let tx_out = tx_out.clone();
+        let tx_out = self.tx.clone();
         let priority = self.priority.clone();
         tokio::spawn(async move {
             if let Some(mut rx) = rx {
                 while let Some(url_idx) = rx.recv().await {
                     // Release increments the semaphore count by 1
-                    notify.release();
                     tx_out.send(url_idx).await;
                 }
             } else {
