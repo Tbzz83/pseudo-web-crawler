@@ -223,7 +223,7 @@ pub struct UrlFrontier {
     urls: Arc<Mutex<AllUrls>>,
     // Priority is in order from highest to lowest priority
 
-    priority_queues: Option<[PriorityQueue; PRIO_QUEUE_INSTANCES]>,
+    priority_queues: Option<Arc<Mutex<[PriorityQueue; PRIO_QUEUE_INSTANCES]>>>,
 //    priority_queues_senders: Option<[Sender<usize>; PRIO_QUEUE_INSTANCES]>,
 //    priority_queues_receivers: Option<[Receiver<usize>; PRIO_QUEUE_INSTANCES]>,
     priority_queues_notify_sem: Arc<Semaphore>,
@@ -256,11 +256,11 @@ impl UrlFrontier {
 
         UrlFrontier {
             urls: Arc::new(Mutex::new(urls)),
-            priority_queues: Some([
+            priority_queues: Some(Arc::new(Mutex::new([
                 q1,
                 q2,
                 q3,
-            ]),
+            ]))),
             domain_queues: vec![
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
@@ -283,20 +283,24 @@ impl UrlFrontier {
     async fn priority_queues_process_urls(&mut self) {
         let notify_sem = self.priority_queues_notify_sem.clone();
         let all_urls = self.urls.clone();
-        if let Some(mut priority_queues) = self.priority_queues.take() {
+        if let Some(priority_queues) = self.priority_queues.clone() {
             tokio::spawn(async move {
                 loop {
-                    notify_sem.acquire();
+                    //notify_sem.access();
+                    let mut priority_queues = priority_queues.lock().unwrap();
 
-                    for priority_queue in &priority_queues {
-                        if let Some(rx) = priority_queue.rx {
+                    for priority_queue in priority_queues.iter_mut() {
+                        if let Some(rx) = priority_queue.rx.as_mut() {
                             if rx.is_empty() {
                                 continue;
                             }
 
                             // Now we have a receiver with something in it
                             if let Some(url_idx) = rx.recv().await {
-
+                                println!("Received a url index: {:?}", url_idx);
+                                
+                                // TODO
+                                // process URLS send to back queue router
                             }
                         }
                     }
@@ -342,13 +346,34 @@ impl UrlFrontier {
         let url_idx = self.urls.lock().unwrap().add(&url);
 
         match url.priority {
-            Priority::High => self.priority_queues[0].push(url_idx).await,
-            Priority::Medium => self.priority_queues[1].push(url_idx).await,
-            Priority::Low => self.priority_queues[2].push(url_idx).await,
+            Priority::High => {
+                //self.priority_queues.as_mut().unwrap()[0].push(url_idx).await
+                if let Some(priority_queues) = self.priority_queues.as_mut() {
+                    priority_queues[0].push(url_idx).await;
+                } else {
+                    panic!("Error: Priority queues not set");
+                }
+            },
+            Priority::Medium => {
+                //self.priority_queues.as_mut().unwrap()[0].push(url_idx).await
+                if let Some(priority_queues) = self.priority_queues.as_mut() {
+                    priority_queues[1].push(url_idx).await;
+                } else {
+                    panic!("Priority queues not set");
+                }
+            },
+            Priority::Low => {
+                //self.priority_queues.as_mut().unwrap()[0].push(url_idx).await
+                if let Some(priority_queues) = self.priority_queues.as_mut() {
+                    priority_queues[2].push(url_idx).await;
+                } else {
+                    panic!("Priority queues not set");
+                }
+            },
         } 
 
         let notify_sem = self.priority_queues_notify_sem.clone();
-        notify_sem.release();
+        //notify_sem.release();
 
         url_idx
     }
