@@ -14,8 +14,8 @@ use tokio::sync::{mpsc::{self, channel, Receiver, Sender}, RwLock};
 
 #[derive(Debug)]
 pub struct PriorityQueue {
-    pub tx: Sender<usize>,
-    pub rx: Option<Receiver<usize>>,
+    tx: Sender<usize>,
+    rx: Option<Receiver<usize>>,
     pub priority: Priority,
 }
 
@@ -45,8 +45,27 @@ impl PriorityQueue {
         Self::with_capacity(32, priority)
     }
 
+    pub async fn pop_left(&mut self) -> Option<usize> {
+        if let Some(rx) = &mut self.rx {
+            if let Some(url_idx) = rx.recv().await {
+                return Some(url_idx);
+            }
+        }
+
+        None
+    }
+
+    pub fn is_empty(&self) -> Option<bool> {
+        if let Some(rx) = &self.rx {
+            return Some(rx.is_empty());
+        }
+
+        None
+    }
+
     pub fn with_capacity(capacity: usize, priority: Priority) -> PriorityQueue {
         let (tx, rx) = channel::<usize>(capacity);
+        dbg!(&rx);
         PriorityQueue {
             tx,
             rx: Some(rx),
@@ -55,25 +74,26 @@ impl PriorityQueue {
     }
 
     pub async fn push(&mut self, url_idx: usize) {
-        let tx_clone = self.tx.clone();
-        tokio::spawn(async move {
-            tx_clone.send(url_idx).await;
-        });
+        match self.tx.send(url_idx).await {
+            Ok(_) => (),
+            Err(e) => println!("Error in tx.send(): {:?}", e),
+        }
     }
 
-    pub async fn listen_and_notify(&mut self) {
-        let rx = self.rx.take();
-        let tx_out = self.tx.clone();
-        let priority = self.priority.clone();
-        tokio::spawn(async move {
-            if let Some(mut rx) = rx {
-                while let Some(url_idx) = rx.recv().await {
-                    // Release increments the semaphore count by 1
-                    tx_out.send(url_idx).await;
-                }
-            } else {
-                panic!("Receiver cannot be acquired in pop_continous()");
-            }
-        });
-    }
+//    pub async fn listen_and_notify(&mut self) {
+//        let rx = self.rx.take();
+//        let tx_out = self.tx.clone();
+//        let priority = self.priority.clone();
+//        tokio::spawn(async move {
+//            if let Some(mut rx) = rx {
+//                while let Some(url_idx) = rx.recv().await {
+//                    // Release increments the semaphore count by 1
+//                    tx_out.send(url_idx).await;
+//                }
+//            } else {
+//                panic!("Receiver cannot be acquired in pop_continous()");
+//            }
+//        });
+//    }
+    
 }

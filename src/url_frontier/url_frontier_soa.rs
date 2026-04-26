@@ -8,9 +8,10 @@ use crate::{
         LOW_PRIORITY_URL_WEIGHT, MID_PRIORITY_DOMAINS, MID_PRIORITY_URL_WEIGHT,
         PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES,
     },
-    url_frontier::priority_queue::{Priority, PriorityQueue},
+    url_frontier::priority_queue::{self, Priority, PriorityQueue},
 };
-use std::{collections::VecDeque, sync::{Arc, Mutex}};
+use std::{collections::VecDeque, sync::Arc};
+use tokio::sync::Mutex;
 
 
 #[derive(Debug)]
@@ -244,38 +245,24 @@ impl UrlFrontier {
         let mut q2 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::Medium);
         let mut q3 = PriorityQueue::with_capacity(PRIO_QUEUE_CAPACITY, Priority::Low);
 
-        // Have to hold senders so they aren't dropped
-//        let (tx1, rx1) = channel(PRIO_QUEUE_CAPACITY); 
-//        let (tx2, rx2) = channel(PRIO_QUEUE_CAPACITY);
-//        let (tx3, rx3) = channel(PRIO_QUEUE_CAPACITY);
         let notify_sem = Arc::new(Semaphore::new(0));
 
-        q1.listen_and_notify().await;
-        q2.listen_and_notify().await;
-        q3.listen_and_notify().await;
 
         UrlFrontier {
             urls: Arc::new(Mutex::new(urls)),
+
             priority_queues: Some(Arc::new(Mutex::new([
                 q1,
                 q2,
                 q3,
             ]))),
+
             domain_queues: vec![
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
                 VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
             ],
-//            priority_queues_senders: Some([
-//                tx1, 
-//                tx2, 
-//                tx3,
-//            ]),
-//            priority_queues_receivers: Some([
-//                rx1,
-//                rx2,
-//                rx3,
-//            ]),
+
             priority_queues_notify_sem: notify_sem,
         }
     }
@@ -286,22 +273,25 @@ impl UrlFrontier {
         if let Some(priority_queues) = self.priority_queues.clone() {
             tokio::spawn(async move {
                 loop {
-                    //notify_sem.access();
-                    let mut priority_queues = priority_queues.lock().unwrap();
+                    notify_sem.acquire();
+                    let mut guard = priority_queues.lock().await;
 
-                    for priority_queue in priority_queues.iter_mut() {
-                        if let Some(rx) = priority_queue.rx.as_mut() {
-                            if rx.is_empty() {
+                    for (idx, priority_queue) in guard.iter_mut().enumerate() {
+                        if let Some(is_empty) = priority_queue.is_empty() {
+                            if is_empty {
+                                //println!("Priority queue {idx} is empty");
                                 continue;
                             }
 
                             // Now we have a receiver with something in it
-                            if let Some(url_idx) = rx.recv().await {
+                            if let Some(url_idx) = priority_queue.pop_left().await {
                                 println!("Received a url index: {:?}", url_idx);
                                 
                                 // TODO
                                 // process URLS send to back queue router
                             }
+                        } else {
+                            println!("No receiver found for priority queue {idx}");
                         }
                     }
                 }
@@ -312,30 +302,10 @@ impl UrlFrontier {
 
 
 
-                // Automatically goes highest to lowest priority based on index
-                // Have to iterate through receivers to see which has a new message
-//                'inner: for (idx, receiver) in &mut receivers.iter_mut().enumerate() {
-//                    if receiver.is_empty() {
-//                        println!("\n{:?} priority queue is empty", Priority::try_from(idx).unwrap());
-//                        continue; 
-//                    }
-//
-//                    if let Some(url_idx) = receiver.recv().await {
-//                        println!("\nReceived a url: {:?}\n", &url_idx);
-//                        // TODO
-//                        // Send URL to domain queue
-//                        break 'inner;
-//                    }
-//                }
-//            }
-//        });
     }
 
     pub async fn run(
         &mut self,
-//        _senders: [Sender<usize>; PRIO_QUEUE_INSTANCES],
-//        mut receivers: [Receiver<usize>; PRIO_QUEUE_INSTANCES],
-//        notify_sem: Arc<Semaphore>
     )
     {
         self.priority_queues_process_urls().await;
@@ -343,29 +313,26 @@ impl UrlFrontier {
 
     /// Pushes a url onto the frontier, and returns its index in the frontier.
     pub async fn add_url(&mut self, url: Url) -> usize {
-        let url_idx = self.urls.lock().unwrap().add(&url);
+        let url_idx = self.urls.lock().await.add(&url);
 
         match url.priority {
             Priority::High => {
-                //self.priority_queues.as_mut().unwrap()[0].push(url_idx).await
                 if let Some(priority_queues) = self.priority_queues.as_mut() {
-                    priority_queues[0].push(url_idx).await;
+                    priority_queues.lock().await[0].push(url_idx).await;
                 } else {
                     panic!("Error: Priority queues not set");
                 }
             },
             Priority::Medium => {
-                //self.priority_queues.as_mut().unwrap()[0].push(url_idx).await
                 if let Some(priority_queues) = self.priority_queues.as_mut() {
-                    priority_queues[1].push(url_idx).await;
+                    priority_queues.lock().await[1].push(url_idx).await;
                 } else {
                     panic!("Priority queues not set");
                 }
             },
             Priority::Low => {
-                //self.priority_queues.as_mut().unwrap()[0].push(url_idx).await
                 if let Some(priority_queues) = self.priority_queues.as_mut() {
-                    priority_queues[2].push(url_idx).await;
+                    priority_queues.lock().await[2].push(url_idx).await;
                 } else {
                     panic!("Priority queues not set");
                 }
@@ -373,7 +340,7 @@ impl UrlFrontier {
         } 
 
         let notify_sem = self.priority_queues_notify_sem.clone();
-        //notify_sem.release();
+        notify_sem.release();
 
         url_idx
     }
