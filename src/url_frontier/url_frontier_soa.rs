@@ -8,9 +8,9 @@ use crate::{
         LOW_PRIORITY_URL_WEIGHT, MID_PRIORITY_DOMAINS, MID_PRIORITY_URL_WEIGHT,
         PRIO_QUEUE_CAPACITY, PRIO_QUEUE_INSTANCES,
     },
-    url_frontier::priority_queue::{self, Priority, PriorityQueue},
+    url_frontier::{back_queue_router::BackQueueRouter, priority_queue::{self, Priority, PriorityQueue}},
 };
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 use tokio::sync::Mutex;
 
 
@@ -127,11 +127,11 @@ impl AllUrls {
 
     /// Composes a Url struct based on the url index if it hasn't been soft-deleted
     /// Soft-delete the url index
-    pub fn compose_url_from_idx(&mut self, url_idx: usize) -> Option<Url> {
+    pub fn compose_url_from_idx(&mut self, url_idx: usize) -> Result<Url, &'static str> {
         if self.free_slots.contains(&url_idx) {
-            return None;
+            return Err("This url_idx has already been soft-deleted, or otherwise exists in free slots");
         };
-        let url = Some(Url {
+        let url = Url {
             priority: self.priority[url_idx].clone(),
             full_url: self.full_url[url_idx].clone(),
             domain_rank: self.domain_rank[url_idx],
@@ -140,11 +140,11 @@ impl AllUrls {
             requires_javascript: self.requires_javascript[url_idx],
             is_sitemap_url: self.is_sitemap_url[url_idx],
             response_time_ms: self.response_time_ms[url_idx],
-        });
+        };
 
         self.remove(url_idx);
 
-        url
+        Ok(url)
     }
 
     pub fn with_capacity(capacity: usize) -> AllUrls {
@@ -227,9 +227,10 @@ pub struct UrlFrontier {
     priority_queues: Option<Arc<Mutex<[PriorityQueue; PRIO_QUEUE_INSTANCES]>>>,
 //    priority_queues_senders: Option<[Sender<usize>; PRIO_QUEUE_INSTANCES]>,
 //    priority_queues_receivers: Option<[Receiver<usize>; PRIO_QUEUE_INSTANCES]>,
+    // Use this semaphore to know if there is an url_idx in any priority queue that can be processed
     priority_queues_notify_sem: Arc<Semaphore>,
 
-    domain_queues: Vec<VecDeque<usize>>,
+    domain_queues: Arc<Mutex<HashMap<String, VecDeque<usize>>>>,
 }
 
 impl UrlFrontier {
@@ -257,11 +258,7 @@ impl UrlFrontier {
                 q3,
             ]))),
 
-            domain_queues: vec![
-                VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
-                VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
-                VecDeque::with_capacity(DOMAIN_QUEUE_CAPACITY),
-            ],
+            domain_queues: Arc::new(Mutex::new(HashMap::new())),
 
             priority_queues_notify_sem: notify_sem,
         }
@@ -269,7 +266,8 @@ impl UrlFrontier {
 
     async fn priority_queues_process_urls(&mut self) {
         let notify_sem = self.priority_queues_notify_sem.clone();
-        let all_urls = self.urls.clone();
+        let all_urls_guard = self.urls.clone();
+        let domain_queues_guard = self.domain_queues_guard.clone();
         if let Some(priority_queues) = self.priority_queues.clone() {
             tokio::spawn(async move {
                 loop {
@@ -288,7 +286,7 @@ impl UrlFrontier {
                                 println!("Received a url index: {:?}", url_idx);
                                 
                                 // TODO
-                                // process URLS send to back queue router
+                                BackQueueRouter::process_url(url_idx, domain_queues_guard.clone(), &all_urls_guard.lock().await.get_full_url(url_idx).unwrap()).await;
                             }
                         } else {
                             println!("No receiver found for priority queue {idx}");
